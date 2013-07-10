@@ -21,17 +21,31 @@
  *            - https://developer.mozilla.org/en-US/docs/JSON#JSON_in_Firefox_2
  */
 var fs = require('fs');
+var restler = require('restler');
 var program = require('commander');
 var cheerio = require('cheerio');
-var HTMLFILE_DEFAULT = "index.html";
+var HTMLFILE_DEFAULT = "../index.html";
 var CHECKSFILE_DEFAULT = "checks.json";
+var URL_DEFAULT = "http://enigmatic-coast-9776.herokuapp.com/";
 
 var assertFileExists = function (infile) {
     var instr = infile.toString();
     if (!fs.existsSync(instr)) {
         console.log("%s does not exist. Exiting.", instr);
+        process.exit(1);
     }
     return instr;
+};
+
+var assertUrlGetExists = function (url) {
+    return restler.get(url).on('complete', function (result) {
+        if (result instanceof Error) {
+            console.log("Error: " + result.message);
+            process.exit(1);
+        } else {
+            return result;
+        }
+    });
 };
 
 var cheerioHtmlFile = function (htmlfile) {
@@ -53,6 +67,18 @@ var checkHtmlFile = function (htmlfile, checksfile) {
     return out;
 };
 
+var checkUrlGet = function (url, checksfile) {
+    var result = assertUrlGetExists(url);
+    $ = cheerio.load(result);
+    var checks = loadChecks(checksfile).sort();
+    var out = {};
+    for (var ii  in checks) {
+        var present = $(checks[ii]).length > 0;
+        out[checks[ii]] = present;
+    }
+    return out;
+};
+
 var clone = function (fn) {
     // Workaround for commander.js issue.
     // http://stackoverflow.com/a/6772648
@@ -63,8 +89,15 @@ if (require.main == module) {
     program
         .option('-c, --checks <check_file>', 'Path to checks.json', clone(assertFileExists), CHECKSFILE_DEFAULT)
         .option('-f, --file <html_file>', 'Path to index.html', clone(assertFileExists), HTMLFILE_DEFAULT)
+        .option('-u, --url <get_url>', 'URL to perform HTTP GET on.', clone(assertUrlGetExists), URL_DEFAULT)
         .parse(process.argv);
-    var checkJson = checkHtmlFile(program.file, program.checks);
+    if (program.url === URL_DEFAULT && program.file === HTMLFILE_DEFAULT) {
+        var checkJson = checkUrlGet(program.url, program.checks);
+    } else if (program.url !== URL_DEFAULT && program.url !== undefined) { // Prefer URL specified
+        var checkJson = checkUrlGet(program.url.url.href, program.checks);
+    } else { // Fall back to default file
+        var checkJson = checkHtmlFile(program.file, program.checks);
+    }
     var outJson = JSON.stringify(checkJson, null, 4);
     console.log(outJson);
 } else {
