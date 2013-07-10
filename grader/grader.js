@@ -26,8 +26,11 @@ var program = require('commander');
 var cheerio = require('cheerio');
 var HTMLFILE_DEFAULT = "../index.html";
 var CHECKSFILE_DEFAULT = "checks.json";
-var URL_DEFAULT = "http://enigmatic-coast-9776.herokuapp.com/";
+var URL_DEFAULT = "http://nosite-enigmatic-coast-9776.herokuapp.com/";
 
+// Check that a file can be read and exit if it fails
+// Return: The filename
+// Doesn't seem to get called
 var assertFileExists = function (infile) {
     var instr = infile.toString();
     if (!fs.existsSync(instr)) {
@@ -37,8 +40,11 @@ var assertFileExists = function (infile) {
     return instr;
 };
 
+// Fetch a URL with HTTP GET and exit if it fails
+// Return: The URL
+// Doesn't seem to get called
 var assertUrlGetExists = function (url) {
-    return restler.get(url).on('complete', function (result) {
+    restler.get(url).on('complete', function (result) {
         if (result instanceof Error) {
             console.log("Error: " + result.message);
             process.exit(1);
@@ -46,16 +52,39 @@ var assertUrlGetExists = function (url) {
             return result;
         }
     });
+    return url;
 };
 
+// Return: a cheerio object from a html file
 var cheerioHtmlFile = function (htmlfile) {
     return cheerio.load(fs.readFileSync(htmlfile));
 };
 
+// Return: a cheerio object from html string
+var cheerioHtml = function (html) {
+    return cheerio.load(html);
+};
+
+// Return: The JSON of the checksfile
 var loadChecks = function (checksfile) {
     return  JSON.parse(fs.readFileSync(checksfile));
 };
 
+// Checks a HTML string for the presence of attributes
+// Return: The hash of attributes/presence
+var checkHtml  = function (html, checksfile) {
+    $ = cheerioHtml(html);
+    var checks = loadChecks(checksfile).sort();
+    var out = {};
+    for (var ii in checks) {
+        var present = $(checks[ii]).length > 0;
+        out[checks[ii]] = present;
+    }
+    return out;
+};
+
+// Check a HTML file for the presence of attributes
+// Return: The hash of attributes/presence
 var checkHtmlFile = function (htmlfile, checksfile) {
     $ = cheerioHtmlFile(htmlfile);
     var checks = loadChecks(checksfile).sort();
@@ -67,22 +96,33 @@ var checkHtmlFile = function (htmlfile, checksfile) {
     return out;
 };
 
-var checkUrlGet = function (url, checksfile) {
-    var result = assertUrlGetExists(url);
-    $ = cheerio.load(result);
-    var checks = loadChecks(checksfile).sort();
-    var out = {};
-    for (var ii  in checks) {
-        var present = $(checks[ii]).length > 0;
-        out[checks[ii]] = present;
-    }
-    return out;
+// Workaround for commander.js issue.
+// http://stackoverflow.com/a/6772648
+var clone = function (fn) {
+    return fn.bind({});
 };
 
-var clone = function (fn) {
-    // Workaround for commander.js issue.
-    // http://stackoverflow.com/a/6772648
-    return fn.bind({});
+// Process a URL input for the program
+var processUrl = function (program) {
+    //console.log('url: ' + program.url);
+    restler.get(program.url).on('complete', function (result) {
+        if (result instanceof Error) {
+            console.log("Error: " + result.message);
+            process.exit(1);
+        } else { 
+            var checkJson = checkHtml(result, program.checks);
+            var outJson = JSON.stringify(checkJson, null, 4);
+            console.log(outJson);
+        }
+    });
+};
+
+// Process a file input for the program
+var processFile = function (program) {
+    //console.log('file: ' + program.file);
+    var checkJson = checkHtmlFile(program.file, program.checks);
+    var outJson = JSON.stringify(checkJson, null, 4);
+    console.log(outJson);
 };
 
 if (require.main == module) {
@@ -91,15 +131,11 @@ if (require.main == module) {
         .option('-f, --file <html_file>', 'Path to index.html', clone(assertFileExists), HTMLFILE_DEFAULT)
         .option('-u, --url <get_url>', 'URL to perform HTTP GET on.', clone(assertUrlGetExists), URL_DEFAULT)
         .parse(process.argv);
-    if (program.url === URL_DEFAULT && program.file === HTMLFILE_DEFAULT) {
-        var checkJson = checkUrlGet(program.url, program.checks);
-    } else if (program.url !== URL_DEFAULT && program.url !== undefined) { // Prefer URL specified
-        var checkJson = checkUrlGet(program.url.url.href, program.checks);
-    } else { // Fall back to default file
-        var checkJson = checkHtmlFile(program.file, program.checks);
+    if (program.url !== URL_DEFAULT) { //  We have a URL specified
+        processUrl(program);
+    } else { // Default to a file
+        processFile(program);
     }
-    var outJson = JSON.stringify(checkJson, null, 4);
-    console.log(outJson);
 } else {
     exports.checkHtmlFile = checkHtmlFile;
 }
